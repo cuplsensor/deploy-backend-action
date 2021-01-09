@@ -87,11 +87,6 @@ runs:
       shell: bash
       run: docker context use remote
 
-    # Check out the repository but exclude submodules
-    - uses: actions/checkout@v2
-      with:
-        submodules: false
-
     # Use the docker-compose file to define a service. STEP5. https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-cli-tutorial-fargate.html
     - name: Build and run containers on the droplet with docker-compose
       shell: bash
