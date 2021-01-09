@@ -5,11 +5,14 @@ inputs:
     description: 'URL of a Redis database used for rate limiting API requests.'
     required: false
     default: 'redis://redis_r1:6379'
-  droplet_ssh_private_key:
-    description: 'Must be a GitHub secret. Private key for communicating with the droplet.'
+  droplet_username:
+    description: 'Must be a GitHub secret. A non-root user, created on the droplet with permissions to run docker e.g. deployer'
     required: true
-  host:
-    description: 'Full hostname of the droplet e.g. latest.b.cupl.uk'
+  droplet_ssh_private_key:
+    description: 'Must be a GitHub secret. Private SSH key for connecting to the droplet as a non-root user.'
+    required: true
+  droplet_host:
+    description: 'Full hostname of the droplet e.g. latest.b.cupl.uk. The backend application will be accessible from this address.'
     required: true
     
     
@@ -21,17 +24,17 @@ runs:
       shell: bash
       run: mkdir ~/.ssh
       
-    - name: Copy in an SSH private key for communicating with the droplet. This must be a GitHub secret.
+    - name: Copy in an SSH private key for communicating with the droplet. Remove carriage returns. This must be a GitHub secret.
       shell: bash
       run: echo "${{ inputs.droplet_ssh_private_key }}" | tr -d '\r' >> ~/.ssh/id_rsa
 
-    - name: Add remote server to known hosts for SSH
-      run: ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
+    - name: Add remote server to known hosts for SSH. This helps to dodge a "not seen this host before" question when connecting.
+      shell: bash
+      run: ssh-keyscan -H ${{ inputs.droplet_host }} >> ~/.ssh/known_hosts
 
     - name: Add a docker context
-      run: |
-        docker context create remote --docker "host=ssh://${{ secrets.CUPL_DEPLOY_LATEST_USERNAME }}@${{ secrets.CUPL_DEPLOY_LATEST_HOST }}"
-        docker context ls
+      shell: bash
+      run: docker context create remote --docker "host=ssh://${{ inputs.droplet_username }}@${{ inputs.droplet_host }}"
 
     # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
     - uses: actions/checkout@v2
@@ -41,7 +44,6 @@ runs:
     # Use the docker-compose file to define a service. STEP5. https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-cli-tutorial-fargate.html
     - name: Deploy with docker-compose
       run: |
-        docker-compose -v
         docker context use remote
         docker-compose up --build -d
       env:
