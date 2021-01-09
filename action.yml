@@ -15,7 +15,6 @@ inputs:
     
 runs:
   using: "composite"
-  runs-on: ubuntu-20.04
   steps:          
     # Sets up the ec2-cli. This is needed for deploying the backend to Amazon fargate.
     - name: Make a directory to store the SSH private key.
