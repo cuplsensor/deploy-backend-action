@@ -1,10 +1,8 @@
 name: 'Deploy cuplbackend.'
 description: 'Deploy an instance of cuplbackend to a DigitalOcean droplet via SSH.'
+
 inputs:
-  ratelimit_storage_url:
-    description: 'URL of a Redis database used for rate limiting API requests.'
-    required: false
-    default: 'redis://redis_r1:6379'
+  # DigitalOcean droplet parameters.
   droplet_username:
     description: 'Must be a GitHub secret. A non-root user, created on the droplet with permissions to run docker e.g. deployer'
     required: true
@@ -12,14 +10,63 @@ inputs:
     description: 'Must be a GitHub secret. Private SSH key for connecting to the droplet as a non-root user.'
     required: true
   droplet_host:
-    description: 'Full hostname of the droplet e.g. latest.b.cupl.uk. The backend application will be accessible from this address.'
+    description: 'Hostname of the droplet e.g. latest.b.cupl.uk. The backend application will be accessible from this address.'
     required: true
-    
+  # Database connection for cuplbackend. The database must have been created already.
+  db_user:
+    description: 'Should be a GitHub secret. Database username e.g. postgres'
+    required: true
+  db_pass:
+    description: 'Must be a GitHub secret. Database password'
+    required: true
+  db_name:
+    description: 'Should be a GitHub secret. Database name e.g. db1'
+    required: true
+  db_host:
+    description: 'Should be a GitHub secret. Hostname or IP address of the database e.g. oe0aagea33.db.digitalocean.com'
+    required: true
+  # Randomised strings for cuplbackend.
+  adminapi_clientsecret:
+    description: 'Must be a GitHub secret. Used for token-based authentication in the admin API.'
+    required: true
+  tagtoken_clientsecret:
+    description: 'Must be a GitHub secret. Used for token-based authentication in the consumer API.'
+    required: true
+  hashids_salt:
+    description: 'Must be a GitHub secret. Salt for generating tag serial strings from integer IDs. Keep a copy in a safe place.'
+    required: true
+  csrf_session_key:
+    description: 'Must be a GitHub secret. Used by cuplbackend for creating CSRF tokens.'
+    required: true
+  secret_key:
+    description: 'Must be a GitHub secret.'
+    required: true
+  # Other parameters for cuplbackend.
+  drop_on_init:
+    description: 'Drop all tables and reinitialise the database upon startup. This will wipe out all data!'
+    required: false
+    default: 'false'
+  # Flask-Limiter parameters for cuplbackend.
+  ratelimit_storage_url:
+    description: 'URL of a Redis database used for rate limiting API requests.'
+    required: false
+    default: 'redis://redis_r1:6379'
+  ratelimit_strategy:
+    description: 'The strategy employed by Flask-Limiter in cuplbackend.'
+    required: false
+    default: 'moving-window'
+  ratelimit_enabled:
+    description: 'True to enable Flask-Limiter.'
+    required: false
+    default: 'true'
+  ratelimit_default:
+    description: 'The default rate limit setting for all routes.'
+    required: false
+    default: '80/hour,100/day,2000/year'
     
 runs:
   using: "composite"
   steps:          
-    # Sets up the ec2-cli. This is needed for deploying the backend to Amazon fargate.
     - name: Make a directory to store the SSH private key.
       shell: bash
       run: mkdir ~/.ssh
@@ -28,37 +75,45 @@ runs:
       shell: bash
       run: echo "${{ inputs.droplet_ssh_private_key }}" | tr -d '\r' >> ~/.ssh/id_rsa
 
-    - name: Add remote server to known hosts for SSH. This helps to dodge a "not seen this host before" question when connecting.
+    - name: Add the droplet to known hosts. This helps to dodge a "not seen this host before" question when connecting with SSH.
       shell: bash
       run: ssh-keyscan -H ${{ inputs.droplet_host }} >> ~/.ssh/known_hosts
 
-    - name: Add a docker context
+    - name: Add a docker context for running commands on the droplet and not the local machine.
       shell: bash
       run: docker context create remote --docker "host=ssh://${{ inputs.droplet_username }}@${{ inputs.droplet_host }}"
+      
+    - name: Execute all future commands on the droplet by default.
+      shell: bash
+      run: docker context use remote
 
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    # Check out the repository but exclude submodules
     - uses: actions/checkout@v2
       with:
         submodules: false
 
     # Use the docker-compose file to define a service. STEP5. https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-cli-tutorial-fargate.html
-    - name: Deploy with docker-compose
-      run: |
-        docker context use remote
-        docker-compose up --build -d
+    - name: Build and run containers on the droplet with docker-compose
+      shell: bash
+      run: docker-compose up --build -d
       env:
-        ADMINAPI_CLIENTSECRET: ${{ secrets.ADMINAPI_CLIENTSECRET }}
-        TAGTOKEN_CLIENTSECRET: ${{ secrets.TAGTOKEN_CLIENTSECRET }}
-        HASHIDS_SALT: ${{ secrets.HASHIDS_SALT }}
-        CSRF_SESSION_KEY: ${{ secrets.CSRF_SESSION_KEY }}
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
-        SERVER_NAME: latest.b.cupl.uk
-        DB_PASS: ${{ secrets.DB_PASS }}
-        DB_USER: ${{ secrets.DB_USER }}
-        DB_NAME: ${{ secrets.DB_NAME }}
-        DB_HOST: ${{ secrets.DB_HOST }}
-        WSB_PORT: 5001 
-        DROP_ON_INIT: False
-        RATELIMIT_STORAGE_URL: ${{ env.RATELIMIT_STORAGE_URL }}
-        RATELIMIT_STRATEGY: ${{ secrets.RATELIMIT_STRATEGY }}
-        RATELIMIT_ENABLED: ${{ secrets.RATELIMIT_ENABLED }}
+        # Randomised strings for cuplbackend.
+        ADMINAPI_CLIENTSECRET: ${{ inputs.adminapi_clientsecret }}
+        TAGTOKEN_CLIENTSECRET: ${{ inputs.tagtoken_clientsecret }}
+        HASHIDS_SALT:          ${{ inputs.hashids_salt }}
+        CSRF_SESSION_KEY:      ${{ inputs.csrf_session_key }}
+        SECRET_KEY:            ${{ inputs.secret_key }}
+        # Database environment variables.
+        DB_USER:               ${{ inputs.db_user }}
+        DB_PASS:               ${{ inputs.db_pass }}
+        DB_NAME:               ${{ inputs.db_name }}
+        DB_HOST:               ${{ inputs.db_host }}
+        # Miscellaneous cuplbackend environment variables.
+        SERVER_NAME:           ${{ inputs.droplet_host }}
+        DROP_ON_INIT:          ${{ inputs.drop_on_init }}
+        WSB_PORT:              5001 
+        # Flask-Limiter environment variables.
+        RATELIMIT_STORAGE_URL: ${{ inputs.ratelimit_storage_url }}
+        RATELIMIT_STRATEGY:    ${{ inputs.ratelimit_strategy }}
+        RATELIMIT_ENABLED:     ${{ inputs.ratelimit_enabled }}
+        RATELIMIT_DEFAULT:     ${{ inputs.ratelimit_default }}
