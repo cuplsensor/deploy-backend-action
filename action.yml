@@ -18,7 +18,7 @@ runs:
   runs-on: ubuntu-20.04
   steps:          
     # Sets up the ec2-cli. This is needed for deploying the backend to Amazon fargate.
-    - name: Add a directory to store SSH keys.
+    - name: Make a directory to store the SSH private key.
       shell: bash
       run: mkdir ~/.ssh
       
