@@ -1,0 +1,63 @@
+name: 'Deploy cuplbackend.'
+description: 'Deploy an instance of cuplbackend to a DigitalOcean droplet via SSH.'
+inputs:
+  ratelimit_storage_url:
+    description: 'URL of a Redis database used for rate limiting API requests.'
+    required: false
+    default: 'redis://redis_r1:6379'
+  droplet_ssh_private_key:
+    description: 'Must be a GitHub secret. Private key for communicating with the droplet.'
+    required: true
+  host:
+    description: 'Full hostname of the droplet e.g. latest.b.cupl.uk'
+    required: true
+    
+    
+runs:
+  using: "composite"
+  runs-on: ubuntu-20.04
+  steps:          
+    # Sets up the ec2-cli. This is needed for deploying the backend to Amazon fargate.
+    - name: Add a directory to store SSH keys.
+      shell: bash
+      run: mkdir ~/.ssh
+      
+    - name: Copy in an SSH private key for communicating with the droplet. This must be a GitHub secret.
+      shell: bash
+      run: echo "${{ inputs.droplet_ssh_private_key }}" | tr -d '\r' >> ~/.ssh/id_rsa
+
+    - name: Add remote server to known hosts for SSH
+      run: ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
+
+    - name: Add a docker context
+      run: |
+        docker context create remote --docker "host=ssh://${{ secrets.CUPL_DEPLOY_LATEST_USERNAME }}@${{ secrets.CUPL_DEPLOY_LATEST_HOST }}"
+        docker context ls
+
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+
+    # Use the docker-compose file to define a service. STEP5. https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-cli-tutorial-fargate.html
+    - name: Deploy with docker-compose
+      run: |
+        docker-compose -v
+        docker context use remote
+        docker-compose up --build -d
+      env:
+        ADMINAPI_CLIENTSECRET: ${{ secrets.ADMINAPI_CLIENTSECRET }}
+        TAGTOKEN_CLIENTSECRET: ${{ secrets.TAGTOKEN_CLIENTSECRET }}
+        HASHIDS_SALT: ${{ secrets.HASHIDS_SALT }}
+        CSRF_SESSION_KEY: ${{ secrets.CSRF_SESSION_KEY }}
+        SECRET_KEY: ${{ secrets.SECRET_KEY }}
+        SERVER_NAME: latest.b.cupl.uk
+        DB_PASS: ${{ secrets.DB_PASS }}
+        DB_USER: ${{ secrets.DB_USER }}
+        DB_NAME: ${{ secrets.DB_NAME }}
+        DB_HOST: ${{ secrets.DB_HOST }}
+        WSB_PORT: 5001 
+        DROP_ON_INIT: False
+        RATELIMIT_STORAGE_URL: ${{ env.RATELIMIT_STORAGE_URL }}
+        RATELIMIT_STRATEGY: ${{ secrets.RATELIMIT_STRATEGY }}
+        RATELIMIT_ENABLED: ${{ secrets.RATELIMIT_ENABLED }}
