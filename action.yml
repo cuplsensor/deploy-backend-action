@@ -2,6 +2,9 @@ name: 'Deploy cuplbackend.'
 description: 'Deploy an instance of cuplbackend to a DigitalOcean droplet via SSH.'
 
 inputs:
+  dockertag:
+    description: 'cuplbackend Docker tag e.g. latest or the short SHA-1.'
+    required: true
   # DigitalOcean droplet parameters.
   droplet_username:
     description: 'Must be a GitHub secret. A non-root user, created on the droplet with permissions to run docker e.g. deployer'
@@ -95,6 +98,8 @@ runs:
         docker-compose pull
         docker-compose up --build -d
       env:
+        # Tag for the cuplbackend image.
+        DOCKERTAG:             ${{ inputs.dockertag }}
         # Randomised strings for cuplbackend.
         ADMINAPI_CLIENTSECRET: ${{ inputs.adminapi_clientsecret }}
         TAGTOKEN_CLIENTSECRET: ${{ inputs.tagtoken_clientsecret }}
